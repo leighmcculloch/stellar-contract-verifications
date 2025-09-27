@@ -1,0 +1,136 @@
+name: Verify Contract on Issue
+
+on:
+  issues:
+    types: [opened,edited,labeled,reopened]
+
+permissions: {}  # No permissions
+
+jobs:
+  setup:
+    if: contains(github.event.issue.labels.*.name, 'verification')
+    runs-on: ubuntu-latest
+    outputs:
+      repo: ${{ steps.extract.outputs.repo }}
+      sha: ${{ steps.extract.outputs.sha }}
+      package: ${{ steps.extract.outputs.package }}
+      hash: ${{ steps.extract.outputs.hash }}
+      dir: ${{ steps.extract.outputs.dir }}
+    steps:
+      - name: Extract parameters from issue
+        id: extract
+        run: |
+          ISSUE_BODY="${{ github.event.issue.body }}"
+          # Parse the issue body to extract form inputs
+          # GitHub forms format: ### Field Name\n\nValue\n\n
+          # Extract repo
+          REPO=$(echo "$ISSUE_BODY" | awk '/### Repository/{getline; getline; print}' | sed 's/^ *//;s/ *$//')
+          echo "repo=$REPO" | tee -a $GITHUB_OUTPUT
+          # Extract sha
+          SHA=$(echo "$ISSUE_BODY" | awk '/### Commit SHA/{getline; getline; print}' | sed 's/^ *//;s/ *$//')
+          echo "sha=$SHA" | tee -a $GITHUB_OUTPUT
+          # Extract package
+          PACKAGE=$(echo "$ISSUE_BODY" | awk '/### Package Name/{getline; getline; print}' | sed 's/^ *//;s/ *$//')
+          echo "package=$PACKAGE" | tee -a $GITHUB_OUTPUT
+          # Extract hash
+          HASH=$(echo "$ISSUE_BODY" | awk '/### Expected Hash/{getline; getline; print}' | sed 's/^ *//;s/ *$//')
+          echo "hash=$HASH" | tee -a $GITHUB_OUTPUT
+          # Extract dir (optional)
+          DIR=$(echo "$ISSUE_BODY" | awk '/### Directory/{getline; getline; print}' | sed 's/^ *//;s/ *$//')
+          if [ -z "$DIR" ] || [ "$DIR" = "_No response_" ]; then
+            DIR="."
+          fi
+          echo "dir=$DIR" | tee -a $GITHUB_OUTPUT
+
+  verify:
+    needs: setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup upgrade
+      - uses: stellar/stellar-cli@v23.1.4
+      - uses: stellar/actions/rust-cache@main
+      - name: Build verify program
+        run: |
+          cd .scripts/verify
+          cargo build --release
+      - run: |
+          .scripts/verify/target/release/stellar-contract-verifier \
+            --repo "${{ needs.setup.outputs.repo }}" \
+            --sha "${{ needs.setup.outputs.sha }}" \
+            --package "${{ needs.setup.outputs.package }}" \
+            --hash "${{ needs.setup.outputs.hash }}" \
+            --dir "${{ needs.setup.outputs.dir }}"
+
+  record-verification:
+    needs: [setup, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      repo: https://github.com/${{ needs.setup.outputs.repo }}
+      sha: ${{ needs.setup.outputs.sha }}
+      package: ${{ needs.setup.outputs.package }}
+      hash: ${{ needs.setup.outputs.hash }}
+      dir: ${{ needs.setup.outputs.dir }}
+      issue_url: ${{ github.event.issue.html_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: mkdir -p verifications
+      - run: if [ -f verifications/${hash}.json ]; then echo "Verification record already exists" && exit 1; fi
+      - run: |
+          jq -n \
+            --arg repo "$repo" \
+            --arg sha "$sha" \
+            --arg package "$package" \
+            --arg hash "$hash" \
+            --arg dir "$dir" \
+            --arg issue_url "$issue_url" \
+            '{wasm_hash: $hash, build_inputs: { type: "rust", repo: $repo, sha: $sha, package: $package, dir: $dir }, issue_url: $issue_url}' > verifications/${hash}.json
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: verifications/${{ needs.setup.outputs.hash }}.json
+      - name: Commit verification record
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add verifications/
+          git commit -m "Record verification for wasm ${hash}
+
+          Repository: ${repo}
+          Commit: ${sha}
+          Package: ${package}
+          Issue: ${issue_url}"
+          git push
+
+  close-issue:
+    needs: record-verification
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close verification issue
+        run: |
+          gh issue close ${{ github.event.issue.number }} \
+            --comment "✅ Contract verification completed successfully!
+
+          https://github.com/${{ github.repository }}/blob/main/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
+
+  close-issue-on-failure:
+    needs: record-verification
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close verification issue on failure
+        run: |
+          gh issue close ${{ github.event.issue.number }} \
+            --reason "not_planned" \
+            --comment "❌ Contract verification failed
+
+          The verification process encountered an error and could not complete successfully. Please check the workflow run logs for details about what went wrong.
+
+          This issue has been closed as verification could not be completed."

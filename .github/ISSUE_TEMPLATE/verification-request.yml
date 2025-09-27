@@ -1,0 +1,46 @@
+name: Contract Verification Request
+description: Request verification of a Stellar contract
+title: "[Verification] "
+labels:
+  - verification
+body:
+  - type: input
+    id: repo
+    attributes:
+      label: Repository
+      description: The GitHub repository in format owner/repo (e.g., stellar/soroban-examples)
+      placeholder: stellar/soroban-examples
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Commit SHA
+      description: The commit SHA to verify
+      placeholder: a1b2c3d4e5f6...
+    validations:
+      required: true
+  - type: input
+    id: package
+    attributes:
+      label: Package Name
+      description: The name of the package to build and verify
+      placeholder: hello_world
+    validations:
+      required: true
+  - type: input
+    id: hash
+    attributes:
+      label: Expected Hash
+      description: The expected SHA256 hash of the built WASM
+      placeholder: abc123...
+    validations:
+      required: true
+  - type: input
+    id: dir
+    attributes:
+      label: Directory
+      description: The directory within the repository to build from (defaults to ".")
+      placeholder: .
+    validations:
+      required: false
