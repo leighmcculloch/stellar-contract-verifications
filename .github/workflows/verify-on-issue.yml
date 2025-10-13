@@ -98,21 +98,19 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add verifications/
-          git commit -m "Record verification for wasm ${hash}
-
-          Repository: ${repo}
-          Commit: ${sha}
-          Package: ${package}
-          Issue: ${issue_url}"
+          git commit -m "Add verification of wasm ${hash}"
           git push
 
   close-issue:
+    if: success() && !skipped()
     needs: record-verification
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
       - name: Close verification issue
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh issue close ${{ github.event.issue.number }} \
             --comment "✅ Contract verification completed successfully!
@@ -120,12 +118,15 @@ jobs:
           https://github.com/${{ github.repository }}/blob/main/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
 
   close-issue-on-failure:
+    if: failure() && !skipped()
     needs: record-verification
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
       - name: Close verification issue on failure
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh issue close ${{ github.event.issue.number }} \
             --reason "not_planned" \
