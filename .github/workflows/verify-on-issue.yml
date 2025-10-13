@@ -102,7 +102,7 @@ jobs:
           git push
 
   close-issue:
-    if: success() && !skipped()
+    if: needs.record-verification.result == "success"
     needs: record-verification
     runs-on: ubuntu-latest
     permissions:
@@ -118,7 +118,7 @@ jobs:
           https://github.com/${{ github.repository }}/blob/main/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
 
   close-issue-on-failure:
-    if: failure() && !skipped()
+    if: needs.record-verification.result == "success"
     needs: record-verification
     runs-on: ubuntu-latest
     permissions:
