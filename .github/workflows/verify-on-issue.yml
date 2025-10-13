@@ -119,7 +119,7 @@ jobs:
           https://github.com/${{ github.repository }}/blob/main/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
 
   close-issue-on-failure:
-    if: needs.record-verification.result == 'success'
+    if: needs.record-verification.result == 'failure'
     needs: record-verification
     runs-on: ubuntu-latest
     permissions:
@@ -131,7 +131,7 @@ jobs:
         run: |
           gh issue close ${{ github.event.issue.number }} \
             --repo ${{ github.repository }} \
-            --reason "not_planned" \
+            --reason "not planned" \
             --comment "❌ Contract verification failed
 
           The verification process encountered an error and could not complete successfully. Please check the workflow run logs for details about what went wrong.
