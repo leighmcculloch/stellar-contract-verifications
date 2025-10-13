@@ -113,6 +113,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue close ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
             --comment "✅ Contract verification completed successfully!
 
           https://github.com/${{ github.repository }}/blob/main/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
@@ -129,6 +130,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue close ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
             --reason "not_planned" \
             --comment "❌ Contract verification failed
 
