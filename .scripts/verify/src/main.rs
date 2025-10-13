@@ -244,7 +244,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        if let Some(other_bytes) = other_bytes {
+        if let Some(ref other_bytes) = other_bytes {
             info!("Computing SHA256 hash of {} Wasm file for fallback verification", other_variant);
             let other_hash = Sha256::digest(&other_bytes);
             let other_hash_str = hex::encode(other_hash);
