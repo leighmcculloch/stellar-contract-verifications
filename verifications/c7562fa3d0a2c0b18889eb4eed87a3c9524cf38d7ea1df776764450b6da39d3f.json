@@ -1,0 +1,11 @@
+{
+  "wasm_hash": "c7562fa3d0a2c0b18889eb4eed87a3c9524cf38d7ea1df776764450b6da39d3f",
+  "build_inputs": {
+    "type": "rust",
+    "repo": "https://github.com/leighmcculloch/exp-noop-contract",
+    "sha": "71f14f4a1a63edb438e99fe91f74d3a7a56afb60",
+    "package": "exp-noop-contract",
+    "dir": "."
+  },
+  "issue_url": "https://github.com/leighmcculloch/stellar-contract-verifications/issues/1"
+}
