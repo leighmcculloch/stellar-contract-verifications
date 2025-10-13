@@ -66,6 +66,8 @@ jobs:
   record-verification:
     needs: [setup, verify]
     runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.capture-sha.outputs.commit_sha }}
     permissions:
       contents: write
       id-token: write
@@ -100,6 +102,9 @@ jobs:
           git add verifications/
           git commit -m "Add verification of wasm ${hash}"
           git push
+      - name: Capture commit SHA
+        id: capture-sha
+        run: echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
   close-issue:
     if: needs.record-verification.result == 'success'
@@ -116,7 +121,7 @@ jobs:
             --repo ${{ github.repository }} \
             --comment "✅ Contract verification completed successfully!
 
-          https://github.com/${{ github.repository }}/blob/main/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
+          https://github.com/${{ github.repository }}/blob/${{ needs.record-verification.outputs.commit_sha }}/verifications/${{ needs.setup.outputs.hash }}.json#L1-L12"
 
   close-issue-on-failure:
     if: needs.record-verification.result == 'failure'
