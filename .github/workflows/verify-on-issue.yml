@@ -44,8 +44,12 @@ jobs:
 
   verify:
     needs: setup
-    runs-on: ubuntu-latest
-
+    continue-on-error: true
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - run: rustup upgrade
@@ -62,9 +66,40 @@ jobs:
             --package "${{ needs.setup.outputs.package }}" \
             --hash "${{ needs.setup.outputs.hash }}" \
             --dir "${{ needs.setup.outputs.dir }}"
+      - name: Mark success
+        if: success()
+        run: echo "success" > success.txt
+      - name: Upload success artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-success-${{ matrix.os }}
+          path: success.txt
+
+  check-verify:
+    needs: verify
+    runs-on: ubuntu-latest
+    if: always()
+    outputs:
+      success: ${{ steps.check.outputs.success }}
+    steps:
+      - name: Download success artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: verify-success-*
+          path: artifacts/
+      - name: Check if any succeeded
+        id: check
+        run: |
+          if ls artifacts/verify-success-*/success.txt 1> /dev/null 2>&1; then
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+          fi
 
   record-verification:
-    needs: [setup, verify]
+    needs: [setup, check-verify]
+    if: needs.check-verify.outputs.success == 'true'
     runs-on: ubuntu-latest
     outputs:
       commit_sha: ${{ steps.capture-sha.outputs.commit_sha }}
