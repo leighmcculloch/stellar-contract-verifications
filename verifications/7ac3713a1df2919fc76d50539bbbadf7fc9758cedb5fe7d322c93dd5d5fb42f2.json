@@ -1,0 +1,11 @@
+{
+  "wasm_hash": "7ac3713a1df2919fc76d50539bbbadf7fc9758cedb5fe7d322c93dd5d5fb42f2",
+  "build_inputs": {
+    "type": "rust",
+    "repo": "https://github.com/stellar/stellar-disbursement-platform-backend",
+    "sha": "edaf29736ce1aee57e9d71e54b68cc998c6eaf3d",
+    "package": "smart-wallet",
+    "dir": "contracts/smart-wallet"
+  },
+  "issue_url": "https://github.com/leighmcculloch/stellar-contract-verifications/issues/3"
+}
