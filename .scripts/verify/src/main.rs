@@ -141,24 +141,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run stellar contract build
     info!("Building Stellar contract '{}' in directory {}", args.package, build_dir.display());
+    let out_dir = std::env::current_dir()?.join(wasm_path).to_string_lossy().into_owned();
     let output = process::Command::new("stellar")
-        .args(&["contract", "build", "--package", &args.package, "--out-dir", "../wasm/"])
+        .args(&["contract", "build", "--package", &args.package, "--out-dir", &out_dir])
         .env("RUSTUP_TOOLCHAIN", &toolchain)
         .current_dir(&build_dir)
-        .output()?;
-    info!("Build command completed with exit code {}", output.status.code().unwrap_or(-1));
-    if !output.status.success() {
-        error!("Stellar contract build failed with exit code {}", output.status.code().unwrap_or(-1));
-        if !output.stdout.is_empty() {
-            error!("Build stdout: {}", String::from_utf8_lossy(&output.stdout));
-        }
-        if !output.stderr.is_empty() {
-            error!("Build stderr: {}", String::from_utf8_lossy(&output.stderr));
-        }
-        if output.stdout.is_empty() && output.stderr.is_empty() {
-            error!("No output captured from build command");
-        }
-        process::exit(output.status.code().unwrap_or(1));
+        .status()?;
+    if !output.success() {
+        process::exit(output.code().unwrap_or(1));
     }
 
     // Compute SHA256 hash of the output Wasm
