@@ -5,7 +5,7 @@
 
 ## Verified Contracts
 
-Any contracts that have been successfully verified are detailed in the `verifications/` repo. Each verified contract will have a JSON file named with the wasm hash.
+Any contracts that have been successfully verified are detailed in the `verifications/` folder. Each verified contract will have a JSON file named with the wasm hash.
 
 ## Verify a Contract
 
@@ -23,3 +23,6 @@ To discuss what's happening in this repo, please go to this discussion thread:
 
 - This is not audited or tested. It's an experiment, early days.
 - Multiple commits in a repo may build to the same wasm hash, and this repo will only verify a contract once, the first time.
+- Only contracts that have been captured in [leighmcculloch/stellar-contract-wasms] are supported, which is typically any contract deployed to mainnet more than one day ago.
+
+[leighmcculloch/stellar-contract-wasms]: https://github.com/leighmcculloch/stellar-contract-wasms
