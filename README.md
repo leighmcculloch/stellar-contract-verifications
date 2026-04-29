@@ -1,28 +1,32 @@
-👋 This repository contains scripts that given a set of details about a Stellar contract to build, will attempt to build it and match it to a contract deployed on Stellar mainnet.
+This repository runs a daily build-verification of Stellar contracts and records the results.
 
 > [!WARNING]
 > This repository is an experiment. The contents should _not_ be used at this time as an input to auditing or any financial or otherwise meaningful decisions. Use this repository only to engage in the experiment and for no other purpose.
 
-## Verified Contracts
+## How it works
 
-Any contracts that have been successfully verified are detailed in the `verifications/` folder. Each verified contract will have a JSON file named with the wasm hash.
+A scheduled GitHub workflow ([`.github/workflows/verify.yml`](.github/workflows/verify.yml)) runs daily and:
 
-## Verify a Contract
+1. Clones [`stellar-experimental/contract-wasms`](https://github.com/stellar-experimental/contract-wasms) and computes the sha256 of each `.wasm` in `contracts/`.
+2. Skips any wasm that already has a record in `verifications/<hash>.json`.
+3. For each remaining wasm, in an isolated matrix job with no token permissions:
+   - Reads the wasm's contract metadata (looks up `source_repo` and `source_rev`).
+   - Clones the source at that revision.
+   - Runs `stellar contract build verify --wasm-hash <hash> --network mainnet --source <dir>` (from [stellar/stellar-cli#2525](https://github.com/stellar/stellar-cli/pull/2525)).
+   - Uploads a JSON record as a workflow artifact.
+4. A separate job collects the artifacts and commits them to `verifications/`.
 
-To have a contract run through the verification process, open an issue here:
+## Record format
 
-- https://github.com/leighmcculloch/stellar-contract-verifications/issues/new?template=verification-request.yml
+Each verification produces `verifications/<hash>.json`:
 
-## Discussion and Feedback
+```json
+{
+  "wasm-hash": "...",
+  "build-verified": true,
+  "run": "https://github.com/.../actions/runs/...",
+  "meta": { "...": "..." }
+}
+```
 
-To discuss what's happening in this repo, please go to this discussion thread:
-
-- https://github.com/orgs/stellar/discussions/1802
-
-## Known Limitations
-
-- This is not audited or tested. It's an experiment, early days.
-- Multiple commits in a repo may build to the same wasm hash, and this repo will only verify a contract once, the first time.
-- Only contracts that have been captured in [leighmcculloch/stellar-contract-wasms] are supported, which is typically any contract deployed to mainnet more than one day ago.
-
-[leighmcculloch/stellar-contract-wasms]: https://github.com/leighmcculloch/stellar-contract-wasms
+`build-verified` is `false` when the verify command fails (mismatch, missing `source_repo`/`source_rev` meta, or the source produces zero or multiple cdylibs). Records are written once and never re-checked — delete a record to force re-verification.

@@ -1,0 +1,200 @@
+name: Verify Contracts
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Pin stellar-cli to the head of stellar/stellar-cli#2525 (build verify command).
+  # Bump this SHA as the PR is updated, or replace with a release tag once merged.
+  STELLAR_CLI_REV: 4ab95bf92fa00d119b325749dad5071d0254042e
+  WASMS_REPO: stellar-experimental/contract-wasms
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      has_work: ${{ steps.build.outputs.has_work }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Clone wasms repo
+        run: git clone --depth 1 "https://github.com/${WASMS_REPO}" /tmp/wasms
+      - name: Build matrix of unverified wasms
+        id: build
+        run: |
+          set -euo pipefail
+          items='[]'
+          shopt -s nullglob
+          for f in /tmp/wasms/contracts/*.wasm; do
+            hash=$(sha256sum "$f" | cut -d' ' -f1)
+            if [ -f "verifications/${hash}.json" ]; then
+              continue
+            fi
+            rel=${f#/tmp/wasms/}
+            items=$(jq -c --arg h "$hash" --arg p "$rel" '. + [{hash: $h, file: $p}]' <<<"$items")
+          done
+          # GitHub Actions caps matrix expansion at 256 jobs per run.
+          items=$(jq -c '.[0:256]' <<<"$items")
+          count=$(jq 'length' <<<"$items")
+          echo "Discovered $count wasms to verify"
+          echo "matrix=$items" >> "$GITHUB_OUTPUT"
+          if [ "$count" -gt 0 ]; then
+            echo "has_work=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: discover
+    if: needs.discover.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        item: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Clone wasms repo
+        run: git clone --depth 1 "https://github.com/${WASMS_REPO}" /tmp/wasms
+
+      - name: Verify wasm file hash
+        env:
+          EXPECTED: ${{ matrix.item.hash }}
+          FILE: ${{ matrix.item.file }}
+        run: |
+          set -euo pipefail
+          actual=$(sha256sum "/tmp/wasms/${FILE}" | cut -d' ' -f1)
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "Hash mismatch: got $actual, expected $EXPECTED"
+            exit 1
+          fi
+
+      - name: Cache stellar-cli
+        id: cache-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/stellar
+          key: stellar-cli-${{ env.STELLAR_CLI_REV }}
+
+      - name: Install stellar-cli
+        if: steps.cache-cli.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked \
+            --git https://github.com/stellar/stellar-cli \
+            --rev "${STELLAR_CLI_REV}" \
+            stellar-cli
+
+      - name: Read wasm meta
+        id: meta
+        env:
+          FILE: ${{ matrix.item.file }}
+        run: |
+          set -euo pipefail
+          meta_raw=$(stellar contract info meta --wasm "/tmp/wasms/${FILE}" || true)
+          # Convert key=value lines into a JSON object.
+          meta_json=$(printf '%s\n' "$meta_raw" | jq -Rn '
+            [inputs | select(length > 0) | capture("^(?<k>[^=]+)=(?<v>.*)$") | {(.k): .v}] | add // {}
+          ')
+          source_repo=$(jq -r '.source_repo // ""' <<<"$meta_json")
+          source_rev=$(jq -r '.source_rev // ""' <<<"$meta_json")
+          {
+            echo "meta_json<<META_EOF"
+            echo "$meta_json"
+            echo "META_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "source_repo=$source_repo" >> "$GITHUB_OUTPUT"
+          echo "source_rev=$source_rev" >> "$GITHUB_OUTPUT"
+
+      - name: Clone source
+        id: clone
+        if: steps.meta.outputs.source_repo != '' && steps.meta.outputs.source_rev != ''
+        continue-on-error: true
+        env:
+          REPO: ${{ steps.meta.outputs.source_repo }}
+          REV: ${{ steps.meta.outputs.source_rev }}
+        run: |
+          set -euo pipefail
+          git clone "$REPO" /tmp/source
+          git -C /tmp/source checkout "$REV"
+
+      - name: Run build verify
+        id: verify
+        if: steps.clone.outcome == 'success'
+        continue-on-error: true
+        env:
+          HASH: ${{ matrix.item.hash }}
+        run: |
+          stellar contract build verify \
+            --wasm-hash "$HASH" \
+            --network mainnet \
+            --source /tmp/source
+
+      - name: Build verification record
+        env:
+          HASH: ${{ matrix.item.hash }}
+          META_JSON: ${{ steps.meta.outputs.meta_json }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$VERIFY_OUTCOME" = "success" ]; then
+            verified=true
+          else
+            verified=false
+          fi
+          jq -n \
+            --arg hash "$HASH" \
+            --argjson verified "$verified" \
+            --arg run "$RUN_URL" \
+            --argjson meta "$META_JSON" \
+            '{"wasm-hash": $hash, "build-verified": $verified, "run": $run, "meta": $meta}' \
+            > "${HASH}.json"
+          cat "${HASH}.json"
+
+      - name: Upload verification record
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ matrix.item.hash }}
+          path: ${{ matrix.item.hash }}.json
+          if-no-files-found: error
+
+  commit:
+    needs: [discover, verify]
+    if: ${{ !cancelled() && needs.discover.outputs.has_work == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download verification artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: verification-*
+          path: /tmp/artifacts
+          merge-multiple: true
+      - name: Move records into verifications/
+        run: |
+          set -euo pipefail
+          mkdir -p verifications
+          shopt -s nullglob
+          for f in /tmp/artifacts/*.json; do
+            cp "$f" "verifications/$(basename "$f")"
+          done
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add verifications/
+          if git diff --cached --quiet; then
+            echo "No new verification records to commit"
+            exit 0
+          fi
+          git commit -m "Add verification records"
+          git push
